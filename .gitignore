@@ -1,0 +1,25 @@
+# n8n data and credentials
+config/
+data/
+exports/
+logs/
+n8n_data/
+*.sqlite
+*.sqlite-*
+*.db
+*.tar.gz
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+token.json
+secrets/
+
+# Temporary and OS files
+*.log
+.DS_Store
+Thumbs.db

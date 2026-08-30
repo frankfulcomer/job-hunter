@@ -1,0 +1,22 @@
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n@sha256:cda6bafc7bb4873533e7affb82d1bd47282a7614bdf83242c2293f8ff281261a
+    container_name: n8n
+    restart: unless-stopped
+    cpus: "2.0"
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      TZ: America/New_York
+      GENERIC_TIMEZONE: America/New_York
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RELEASE_TYPE: stable
+      N8N_RUNNERS_ENABLED: "true"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./data:/data
+
+volumes:
+  n8n_data:
+    external: true
+    name: n8n_data
