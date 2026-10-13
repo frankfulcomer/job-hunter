@@ -71,3 +71,7 @@ A sanitized workflow export may be added after all credentials and personal data
 ## Status
 
 The workflow is running in production on Linux at 7:00 AM, 12:00 PM, and 5:00 PM Eastern Time.
+
+## Daily report application-history verification
+
+The downstream Daily QA Job Report uses the owner-maintained Hub Excel workbook in Google Drive to check prior applications before recommending opportunities. This is separate from Job Hunter's discovered-listing deduplication. See the [history-check operating contract](docs/daily-report-history-check.md) and [validation/observation record](docs/validation/daily-report-history-check.md). The task's private source configuration and personal application data are not stored in this public repository.
