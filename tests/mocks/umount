@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Test double for umount: moves mount point contents back to the simulated device.
+mnt="$1"; c="$MOCK_STATE/umount_count"
+n=$(( $(cat "$c" 2>/dev/null || echo 0) + 1 )); echo "$n" >| "$c"
+[[ "${MOCK_UMOUNT_FAIL_AT:-0}" != "$n" ]] || exit 32
+grep -q " $mnt " "$MOCK_STATE/mounts" || exit 32
+find "$mnt" -mindepth 1 -maxdepth 1 -exec mv -t "$MOCK_STATE/usb-store" {} +
+grep -v " $mnt " "$MOCK_STATE/mounts" >| "$MOCK_STATE/mounts.tmp" || true
+mv -f "$MOCK_STATE/mounts.tmp" "$MOCK_STATE/mounts"

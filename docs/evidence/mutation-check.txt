@@ -1,0 +1,119 @@
+Job Hunter mutation check
+date: 2026-10-18T15:19:06-04:00
+host: Linux 7.0.0-38-generic x86_64; bash 5.3.9(1)-release; Python 3.14.4
+code under test (sha256):
+  cf566d2561de1279b3ce231f1326e7a069f307507de8855be9b2ee5fe5c417bf  restore/compose.drtest.yaml
+  7745adcb6562b1d4af4508b7d7077ddaee11620693fde045ac3ac4a0328aa61d  restore/compose.restore.yaml
+  1d3bddb778b42addb8c019568a90d33db2e4d5fc71d6806e39fb02b46ea61d60  restore/egress-check.sh
+  f391ea5bd2d7fdca9dd3e93ed61b468bb0399668da7b6d58a7fbc4b1a690333a  scripts/backup-n8n.sh
+  7dd78eccf49a2a06f8093f28af439d5a5f253878acfdbfe4cb1481db9979cc9a  scripts/lib/jh-common.sh
+  08b6be811c347c3c89ebb26009913443c5e2602d86aa78f8c967ba61567534f6  scripts/restore-n8n.sh
+  d77177f5dd8496b0b58838191878c1eb66d206a4a5a198f252152e467bd9fcc3  tests/docker-integration.sh
+  964a49d0aa9aa0583cf780215533747003820a7381d219c44663aef1e3a6e223  tests/mocks/blkid
+  00f835272ed1bd391164da2df8a4aec3523548c8b3fb9a2c8796fe699f667cbc  tests/mocks/docker
+  d9eac5f2f98c35e16529aeefc23ff64b309d1c940de1cc4324ea37a801adddd1  tests/mocks/findmnt
+  11f7ad3a666490a24d84d3563c40b00685dcf76b18aeba596a00ca7ea3b295eb  tests/mocks/lsblk
+  5f0e7d9c85c2df61ac41b0f49f16cbc2925a90dee8780b7b66e522b200aa1db9  tests/mocks/mount
+  5db8bf4c928cce629766728aff68491d464732c84658f621904a790a11867435  tests/mocks/umount
+  6d453570c7d3fc6a3d4a939f809c88cbbe8dec08c08248343ec32e00c802b607  tests/mutation-check.sh
+  fb31323c51736d64f1f379752752e85fbf601719b87589c6c4073e677f1a3aaa  tests/run-tests.sh
+  2e30cf29607bf8f0586f1a7a7222a2baa8c7bc0104cf153c39a24fd652fd828e  tests/test-overrides.sh
+  532baa9d977005aaf60c15e1db8edfc1481a057dc31e4a506f76c2b20f31cee9  tests/vm/e2e-synthetic.sh
+  4f87c9ab78bc57554f3fe315e9d6dab5e954cd4b3767454250a34cb00707cfb9  tests/vm/vm-overrides.sh
+  59dcd311484dac9d2236e6182f59925e2e51256b7fc35e46e32ee76e950a91dd  tests/vm/vm-prepare.sh
+
+== unmutated copy (must pass)
+passed: 199  failed: 0
+RESULT: PASS
+
+== mutation: errexit (scripts/backup-n8n.sh)
+-- diff
+@@ -493,7 +493,6 @@
+ main() {
+   { set +x; } 2>/dev/null
+   set -euo pipefail
+-  shopt -s inherit_errexit   # failures inside $(...) abort too
+   set -o noclobber
+   umask 077
+   exec 7>&1 8>&2
+-- suite
+  FAIL failure inside a command substitution aborts (inherit_errexit)
+passed: 198  failed: 1
+RESULT: DETECTED (expected failing test: failure inside a command substitution aborts (inherit_errexit))
+
+== mutation: walk-onerror (scripts/lib/jh-common.sh)
+-- diff
+@@ -98,7 +98,7 @@
+ def fail(err): raise err
+ if not os.path.isdir(root): sys.exit("not a directory: " + root)
+ h, n = hashlib.sha256(), 0
+-for dp, dns, fns in os.walk(root, onerror=fail):
++for dp, dns, fns in os.walk(root):
+     dns.sort()
+     for name in sorted(dns + fns):
+         p = os.path.join(dp, name)
+-- suite
+  FAIL fingerprint fails on an unreadable directory
+passed: 198  failed: 1
+RESULT: DETECTED (expected failing test: fingerprint fails on an unreadable directory)
+
+== mutation: volume-ownership (scripts/restore-n8n.sh)
+-- diff
+@@ -138,7 +138,7 @@
+   docker volume create --label "$LABEL_KEY=$RAND" "$TARGET_VOLUME" >/dev/null
+   owner="$(docker volume inspect --format "{{index .Labels \"$LABEL_KEY\"}}" "$TARGET_VOLUME")" \
+     || jh_die "cannot inspect volume $TARGET_VOLUME"
+-  [[ "$owner" == "$RAND" ]] || jh_die "volume $TARGET_VOLUME already existed (created by someone else); not touching it"
++  true || jh_die "volume $TARGET_VOLUME already existed (created by someone else); not touching it"
+   VOLUME_CREATED=1
+   HELPER_CREATED=1
+   docker create --name "$HELPER" --label "$LABEL_KEY=$RAND" --network none \
+-- suite
+  FAIL race abort names the cause
+passed: 198  failed: 1
+RESULT: DETECTED (expected failing test: race abort names the cause)
+
+== mutation: loose-missing-object (scripts/lib/jh-common.sh)
+-- diff
+@@ -273,7 +273,7 @@
+     "network":   [d + r"network " + name + r" not found", d + r"No such network: " + name],
+ }.get(kind)
+ lines = [l.strip() for l in sys.stdin.read().splitlines() if l.strip()]
+-sys.exit(0 if pats and len(lines) == 1 and any(re.fullmatch(p, lines[0]) for p in pats) else 1)
++sys.exit(0)
+ ' "$1" "$2"
+ }
+ 
+-- suite
+  FAIL docker state: daemon error is an error, not absence
+  FAIL message naming another object is not absence
+  FAIL lookalike 'not found' text is not absence
+  FAIL daemon error is not absence
+  FAIL extra stderr lines are not absence
+  FAIL wrong-kind message is not absence
+  FAIL regex characters in names are literal
+  FAIL volume inspection error is not read as absence
+  FAIL inspection error is named
+  FAIL production container inspection error refuses n8n_data
+  FAIL restore refuses n8n_data where production exists
+  FAIL inspection error on the verification container is not read as removed
+passed: 187  failed: 12
+RESULT: DETECTED (expected failing test: daemon error is not absence)
+
+== mutation: logged-status (docs/BACKUP-RESTORE.md)
+-- diff
+@@ -22,7 +22,7 @@
+ Run in a real terminal (the passphrase prompt needs one), with the USB drive attached but **not mounted**:
+ 
+ ```
+-( set -o pipefail; sudo bash scripts/backup-n8n.sh 2>&1 | tee ~/jh-backup.log )
++sudo bash scripts/backup-n8n.sh 2>&1 | tee ~/jh-backup.log; echo done
+ ```
+ 
+ With `pipefail` in the subshell, the command's exit status is the backup's (non-zero on any failure, or if `tee` fails), so automation and `&&` chains see the real result. Do not append `; echo ...` to the line: that replaces the status with `echo`'s. The final line is `BACKUP COMPLETE` or `BACKUP FAILED`.
+-- suite
+  FAIL documented logged backups return the backup's exit status (pipefail, no trailing echo)
+passed: 198  failed: 1
+RESULT: DETECTED (expected failing test: documented logged backups return the backup's exit status)
+
+OVERALL: PASS

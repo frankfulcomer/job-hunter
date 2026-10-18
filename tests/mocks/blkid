@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Test double for blkid.
+case "$1" in
+  -U) [[ "$2" == "$MOCK_UUID" ]] && echo "$MOCK_DEV" || exit 2 ;;
+  -s) [[ "$5" == "$MOCK_DEV" ]] || exit 2
+      case "$2" in LABEL) echo "${MOCK_LABEL:-JOB_HUNTER}" ;; TYPE) echo "${MOCK_FSTYPE:-exfat}" ;; esac ;;
+  *) exit 9 ;;
+esac

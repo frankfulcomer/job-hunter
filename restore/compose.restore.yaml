@@ -1,0 +1,7 @@
+# Offline recovery override: run the image loaded from the backup set instead of
+# pulling the pinned digest. Created by scripts/restore-n8n.sh (docker tag).
+#   docker compose -f compose.yaml -f restore/compose.restore.yaml up -d
+services:
+  n8n:
+    image: job-hunter/n8n:restored
+    pull_policy: never

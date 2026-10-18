@@ -44,6 +44,10 @@ Validation included:
 - confirming successful email delivery,
 - and load-testing the workflow under CPU and thermal monitoring.
 
+## Backup and recovery
+
+`scripts/backup-n8n.sh` creates an encrypted, verified backup set on the local backup disk and a USB drive; `scripts/restore-n8n.sh` restores it offline into a new, isolated Docker volume and reports artifact verification separately from the application smoke test. See [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md). Tests: `bash tests/run-tests.sh` (mocked) and `bash tests/docker-integration.sh --context CONTEXT IMAGE` (real Docker semantics, disposable VM only; see [docs/VM-VALIDATION.md](docs/VM-VALIDATION.md)).
+
 ## Security
 
 This repository intentionally excludes:

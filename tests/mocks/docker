@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# Test double for the docker CLI. State lives in $MOCK_STATE. Mirrors the real CLI where
+# the scripts depend on it: missing objects print "No such ..." on stderr; daemon errors
+# are distinct; `volume create` on an existing name succeeds and keeps original labels.
+set -euo pipefail
+S="$MOCK_STATE"
+[[ "${1:-}" == --context ]] && { echo "${2}" > "$S/last-context"; shift 2; }
+echo "docker $*" >> "$S/docker.log"
+cmd="$1"; shift
+src_of() { sed -E 's/.*src=([^,]+).*/\1/' <<<"$1"; }
+dst_of() { sed -E 's/.*dst=([^,]+).*/\1/' <<<"$1"; }
+daemon_error() { echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2; exit 1; }
+maybe_error() { [[ -n "${MOCK_INSPECT_ERROR:-}" && "$1" == $MOCK_INSPECT_ERROR ]] && daemon_error; return 0; }   # glob match
+
+container_inspect() {  # [--format F] name
+  local fmt="" name
+  while [[ "$1" == --* ]]; do case "$1" in --type) shift 2 ;; --format|-f) fmt="$2"; shift 2 ;; esac; done
+  name="$1"; maybe_error "$name"
+  if [[ "$name" == n8n ]]; then
+    [[ -f "$S/container.json" && ! -f "$S/no-prod" ]] || { echo "Error: No such container: $name" >&2; exit 1; }
+    if [[ -n "$fmt" ]]; then [[ -f "$S/paused" ]] && echo true || echo false; else cat "$S/container.json"; fi
+  elif [[ -f "$S/containers/$name" ]]; then
+    if [[ -n "$fmt" ]]; then cat "$S/containers/$name"; else echo '[{}]'; fi
+  else
+    echo "Error: No such container: $name" >&2; exit 1
+  fi
+}
+
+case "$cmd" in
+  context)
+    case "$1" in
+      show) echo "${MOCK_CONTEXT:-default}" ;;
+      inspect) echo "unix:///mock.sock" ;;
+    esac ;;
+  version) echo "27.0.0" ;;
+  inspect) container_inspect "$@" ;;
+  container) [[ "$1" == inspect ]] || exit 9; shift; container_inspect "$@" ;;
+  network)
+    [[ "$1" == inspect ]] || exit 9; shift
+    maybe_error "$1"; echo "Error response from daemon: network $1 not found" >&2; exit 1 ;;
+  ps) echo -n "" ;;
+  volume)
+    sub="$1"; shift
+    case "$sub" in
+      inspect)
+        fmt=""; [[ "$1" == --format ]] && { fmt="$2"; shift 2; }
+        v="$1"; maybe_error "$v"
+        if [[ "$v" == n8n_data && -n "${MOCK_PROD_VOLDIR:-}" && ! -f "$S/no-prod" ]]; then echo "$MOCK_PROD_VOLDIR"; exit 0; fi
+        if [[ ! -d "$S/volumes/$v" ]]; then
+          # Simulate another actor creating the volume right after our existence check.
+          if [[ -n "${MOCK_VOLUME_RACE:-}" ]]; then
+            mkdir "$S/volumes/$v"; echo "someone-else" > "$S/volume-labels/$v"; echo foreign > "$S/volumes/$v/foreign.txt"
+          fi
+          echo "Error response from daemon: get $v: no such volume" >&2; exit 1
+        fi
+        case "$fmt" in *Labels*) cat "$S/volume-labels/$v" 2>/dev/null || echo "" ;; *) echo "$S/volumes/$v" ;; esac ;;
+      create)
+        lab=""; while [[ "$1" == --* ]]; do [[ "$1" == --label ]] && lab="${2#*=}"; shift 2; done
+        if [[ ! -d "$S/volumes/$1" ]]; then mkdir "$S/volumes/$1"; echo "$lab" > "$S/volume-labels/$1"; fi
+        echo "$1" ;;
+      *) exit 9 ;;
+    esac ;;
+  image)
+    [[ "$1" == inspect ]] || exit 9; shift
+    fmt=""; [[ "$1" == --format ]] && { fmt="$2"; shift 2; }
+    maybe_error "$1"
+    absent() { echo "Error response from daemon: No such image: $1" >&2; exit 1; }
+    [[ -f "$S/image_present" ]] || absent "$1"
+    case "$1" in
+      "$MOCK_IMAGE_REF") id="${MOCK_REF_ID:-$MOCK_IMAGE_ID}" ;;
+      "$MOCK_IMAGE_ID") id="$MOCK_IMAGE_ID" ;;
+      *) absent "$1" ;;
+    esac
+    case "$fmt" in *Size*) echo 4096 ;; *) echo "$id" ;; esac ;;
+  pause) touch "$S/paused" ;;
+  unpause) [[ -z "${MOCK_UNPAUSE_FAIL:-}" ]] || exit 1; rm -f "$S/paused" ;;
+  save)
+    t="$(mktemp -d)"; echo '[]' > "$t/manifest.json"
+    tar -C "$t" -cf - manifest.json; rm -rf "$t" ;;
+  load) cat >/dev/null; touch "$S/image_present"; echo "Loaded image ID: $MOCK_IMAGE_ID" ;;
+  tag) echo "$*" >> "$S/tags" ;;
+  create)
+    name=""; lab=""; vol=""
+    while (( $# )); do
+      case "$1" in
+        --name) name="$2"; shift 2 ;; --label) lab="$2"; shift 2 ;;
+        --mount) vol="$(src_of "$2")"; shift 2 ;; --network|--entrypoint) shift 2 ;; *) shift ;;
+      esac
+    done
+    echo "${lab#*=}" > "$S/containers/$name"; echo "$vol" > "$S/containers/$name.vol"; echo "id-$name" ;;
+  cp)
+    [[ "$1" == -a ]] && shift
+    if [[ "$1" == - ]]; then
+      name="${2%%:*}"; vol="$(cat "$S/containers/$name.vol")"
+      tar -C "$S/volumes/$vol" -xf -
+    else   # copy out: real docker cp names the top entry after the source path
+      name="${1%%:*}"; vol="$(cat "$S/containers/$name.vol")"
+      tar -C "$S/volumes" -cf - --transform "s,^$vol,.n8n," "$vol"
+    fi ;;
+  rm)
+    [[ "$1" == -f ]] && shift
+    [[ -z "${MOCK_RM_FAIL:-}" ]] || exit 1
+    [[ -n "${MOCK_RM_NOOP:-}" ]] && exit 0   # reports success but the container remains
+    rm -f "$S/containers/$1" "$S/containers/$1.vol" ;;
+  run)
+    name=""; lab=""; out=""; image=""; n8n_src=""; data_src=""
+    while (( $# )); do
+      case "$1" in
+        --rm) shift ;; --name) name="$2"; shift 2 ;; --label) lab="$2"; shift 2 ;;
+        --network) [[ "$2" == none ]] || { echo "mock: network must be none" >&2; exit 125; }; shift 2 ;;
+        --user|--tmpfs|--entrypoint) shift 2 ;;
+        --env) [[ "$2" == JH_OUT=* ]] && out="${2#JH_OUT=}"; shift 2 ;;
+        --mount)
+          case "$(dst_of "$2")" in
+            /home/node/.n8n) n8n_src="$(src_of "$2")"; [[ "$2" == type=volume* ]] && n8n_src="$S/volumes/$n8n_src" ;;
+            /data) data_src="$(src_of "$2")" ;;
+          esac
+          shift 2 ;;
+        *) image="$1"; shift; break ;;
+      esac
+    done
+    [[ "$image" == "$MOCK_IMAGE_ID" ]] || { echo "mock: unexpected image $image" >&2; exit 125; }
+    echo "${lab#*=}" > "$S/containers/$name"
+    [[ -z "${MOCK_RUN_SLEEP:-}" ]] || sleep "$MOCK_RUN_SLEEP"
+    if [[ -n "${MOCK_RUN_FAIL:-}" ]]; then rm -f "$S/containers/$name"; exit 1; fi
+    python3 - "$n8n_src" "$out" "$data_src" <<'PY'
+import json, os, sqlite3, sys
+src, out, data = sys.argv[1], sys.argv[2], sys.argv[3]
+key = json.load(open(os.path.join(src, "config"))).get("encryptionKey")
+con = sqlite3.connect(os.path.join(src, "database.sqlite"))
+w = [{"id": r[0]} for r in con.execute("select id from workflow_entity")]
+c = [{"name": r[0], "data": "ciphertext"} for r in con.execute("select name from credentials_entity")]
+dec = len(c) if key == os.environ.get("MOCK_KEY") else 0
+if out:
+    d = os.path.join(src, os.path.relpath(out, "/home/node/.n8n")); os.makedirs(d, exist_ok=True)
+    json.dump(w, open(os.path.join(d, "workflows.json"), "w"))
+    json.dump(c, open(os.path.join(d, "credentials.encrypted.json"), "w"))
+data_files = sum(len(f) for _, _, f in os.walk(data)) if data else None
+if data and os.environ.get("MOCK_DATA_HIDDEN"):
+    data_files = 0
+print("n8n CLI log noise")
+print(json.dumps({"workflows": len(w), "credentials": len(c), "credentials_decrypted": dec,
+                  "n8n_version": os.environ.get("MOCK_N8N_VERSION", "1.123.4"), "data_files": data_files}))
+PY
+    rm -f "$S/containers/$name" ;;
+  *) echo "mock docker: unsupported command $cmd" >&2; exit 9 ;;
+esac

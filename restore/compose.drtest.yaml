@@ -1,0 +1,34 @@
+# Isolated recovery drill. Standalone (not an override): no published ports, no
+# production volume or container name, and an internal network with no outbound
+# access, so schedules cannot reach email or job APIs.
+# Set both variables to the values printed by restore-n8n.sh:
+#   export JH_DRTEST_VOLUME=jh_drtest_<ts> JH_DRTEST_DATA=~/jh_drtest_<ts>-data
+#   docker compose -f restore/compose.drtest.yaml up -d
+#   docker compose -f restore/compose.drtest.yaml down      # volume and data are kept
+name: jh-drtest
+services:
+  n8n:
+    image: job-hunter/n8n:restored
+    pull_policy: never
+    networks: [isolated]
+    environment:
+      TZ: America/New_York
+      GENERIC_TIMEZONE: America/New_York
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ${JH_DRTEST_DATA:?set JH_DRTEST_DATA to the --data-dir used by restore-n8n.sh}:/data
+    cpus: "2.0"
+    mem_limit: 3g
+
+networks:
+  isolated:
+    internal: true
+
+volumes:
+  n8n_data:
+    external: true
+    name: ${JH_DRTEST_VOLUME:?set JH_DRTEST_VOLUME to the volume created by restore-n8n.sh}

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test double for lsblk.
+case "$1" in
+  -no) [[ "$2" == PKNAME ]] && echo mockusb ;;
+  -dno) echo "${MOCK_TRAN:-usb}" ;;
+  *) exit 9 ;;
+esac

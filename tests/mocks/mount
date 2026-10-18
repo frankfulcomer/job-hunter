@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Test double for mount: moves the simulated device contents into the mount point.
+opts=""; args=()
+while (( $# )); do case "$1" in -o) opts="$2"; shift 2 ;; -t) shift 2 ;; *) args+=("$1"); shift ;; esac; done
+[[ -z "${MOCK_MOUNT_FAIL:-}" ]] || exit 32
+dev="${args[0]}"; mnt="${args[1]}"; store="$MOCK_STATE/usb-store"
+echo "$dev $mnt $opts" >> "$MOCK_STATE/mounts"
+find "$store" -mindepth 1 -maxdepth 1 -exec mv -t "$mnt" {} +
